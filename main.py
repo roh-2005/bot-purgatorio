@@ -1,10 +1,22 @@
 import asyncio
 import random
 import os
+import threading
+from flask import Flask
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- CONFIGURAÇÕES ---
+# --- SERVIDOR PARA O RENDER NÃO DESLIGAR ---
+web_app = Flask(__name__)
+@web_app.route('/')
+def home(): return "Bot Online!"
+
+def run_web():
+    # O Render exige que o bot escute uma porta (geralmente 8080 ou 10000)
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
+# --- CONFIGURAÇÕES DO BOT ---
 API_ID = 28373470 
 API_HASH = "55d56fcb5e62b12998b5f77b1151136c" 
 BOT_TOKEN = "8791899548:AAGOLZ2qXBuo0QNIBQsUAY-l3QOW3PHZlzc"
@@ -15,7 +27,7 @@ app = Client("purgatorio_v7", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TO
 sorteados = {} 
 jogos_ativos = {} 
 
-# --- BANCO DE DADOS INTEGRADO ---
+# --- BANCO DE DADOS ---
 VERDADES = [
     "Já se apaixonou por alguém aqui do grupo em segredo?", "Já chegou a gozar vendo a foto de perfil de alguém daqui ou imaginando a pessoa?",
     "Quem do grupo você teria uma amizade colorida agora mesmo?", "Já teve um sonho erótico com algum membro daqui? Se sim, quem?",
@@ -55,21 +67,7 @@ VERDADES = [
     "Qual sua maior tara secreta?", "Já fez fio terra ou tem curiosidade?", 
     "Quem do grupo tem a voz mais sexy?", "Já mandou áudio gemendo pra alguém?", 
     "Você é do tipo que se apega fácil ou só quer diversão?", "Já chorou depois do sexo?", 
-    "Qual foi o maior tempo que já ficou sem fazer nada?", "Já usou alguma fantasia (roupa) especial?", 
-    "Já teve um 'repoly' com ex?", "Você prefere luz acesa ou apagada?", 
-    "Já fez algo por dinheiro ou interesse?", "Qual a mensagem mais pesada que tem no seu celular?", 
-    "Quem aqui você levaria para um motel agora?", "Já beijou alguém do mesmo sexo?", 
-    "Qual sua primeira impressão do dono do grupo?", "Já tomou um fora histórico?", 
-    "Já deu um fora e se arrependeu?", "Qual o print mais comprometedor que você tem?", 
-    "Já fingiu orgasmo?", "O que você nunca faria na cama?", 
-    "Quem do grupo você acha que é 'biscoiteiro'?", "Já teve um crush em algum professor(a)?", 
-    "Qual a coisa mais estranha que você já usou como lubrificante?", "Já foi pego no flagra?", 
-    "Qual sua maior loucura por amor?", "Já traiu ou foi traído?", 
-    "Quem do grupo você acha que não toma banho?", "Já dormiu durante o ato?", 
-    "Qual o cheiro que mais te excita?", "Já mandou foto do corpo para um estranho?", 
-    "Você se considera uma pessoa safada ou santa?", "Quem aqui você daria um beijo de 1 minuto?", 
-    "Qual sua opinião sobre relacionamento aberto?", "Já teve um sonho com alguém que você odeia?", 
-    "Qual a coisa mais boba que te faz rir?", "Quem do grupo é o seu número?", 
+    "Qual foi a coisa mais boba que te faz rir?", "Quem do grupo é o seu número?", 
     "Já quis beijar dois ao mesmo tempo?", "Qual sua maior vergonha em um encontro?", 
     "Você prefere ser elogiado pela inteligência ou pelo corpo?", "Já beijou alguém daqui fora do Telegram?", 
     "Qual a pessoa mais rodada que você conhece?", "Quem você acha que é virgem no grupo?", 
@@ -144,7 +142,7 @@ DESAFIOS = [
     "Mande uma figurinha de 'safadeza' para o seu último contato do WhatsApp.", "Conte um segredo que ninguém aqui sabe.",
     "Mande um áudio de 20 segundos cantando uma música erótica.", "Diga quem do grupo você daria um 'tapa na gostosa'.",
     "Poste uma foto dos seus pés.", "Tire uma foto fazendo biquinho.",
-    "Mande um áudio sussurrando: 'Vem cá me pegar'.", "Diga quem você acha que é o mais 'pau mandado' do grupo.",
+    "Mande um áudio sussurrando: 'Vem cá me pegar'.", "Diga quem aqui você acha que é o mais 'pau mandado' do grupo.",
     "Mande uma mensagem no grupo: 'Cansei de ser santo(a)'", "Diga se você prefere por cima ou por baixo.", 
     "Poste o print do seu tempo de uso do celular.", "Mande um 'você me excita' para alguém aleatório no PV.",
     "Diga quem do grupo você bloquearia para sempre.", "Faça um desenho de um pinto no papel e mande a foto.", 
@@ -167,7 +165,6 @@ DESAFIOS = [
     "Mande um emoji de ⚡ para quem te dá um choque de realidade.", "Mande um print dos seus stickers favoritos."
 ]
 
-# --- LÓGICA DE FILTRO ---
 @app.on_message(filters.group & (filters.regex(r"@Vddoudsf_purgatorio_bot") | filters.command("vd")))
 async def handle_start(client, message):
     uid = message.from_user.id
@@ -194,7 +191,7 @@ async def game_engine(client, query):
                 if not m.user.is_bot and m.user.status != "long_ago":
                     membros.append(m.user)
             
-            if not membros: return await query.answer("Não achei ninguém disponível! 🤷‍♂️")
+            if not membros: return await query.answer("Ninguém disponível!")
 
             for i in range(5, 0, -1):
                 await query.edit_message_text(f"🍾 **GIRANDO A GARRAFA...**\n\n⏳ Parando em {i} segundos...")
@@ -209,7 +206,7 @@ async def game_engine(client, query):
             ])
             
             msg = await query.edit_message_text(
-                f"🍾 A garrafa parou para: {sorteado.mention}!\n\n⚠️ **VOCÊ TEM 10 SEGUNDOS PARA ESCOLHER!**",
+                f"🍾 A garrafa parou para: {sorteado.mention}!\n\n⚠️ **TEMPO DE 10s PARA ESCOLHER!**",
                 reply_markup=kb
             )
             
@@ -219,17 +216,16 @@ async def game_engine(client, query):
             if chat_id in sorteados and sorteados[chat_id] == sorteado.id:
                 if chat_id in jogos_ativos and jogos_ativos[chat_id] == msg.id:
                     await msg.delete()
-                    await client.send_message(chat_id, f"⏰ **TEMPO ESGOTADO!**\n{sorteado.mention} não escolheu a tempo e foi pro inferno. Próximo!")
+                    await client.send_message(chat_id, f"⏰ **TEMPO ESGOTADO!**\n{sorteado.mention} amarelou. Próximo!")
                     sorteados.pop(chat_id, None)
                     jogos_ativos.pop(chat_id, None)
-
-        except Exception as e:
-            await query.answer("Me dê permissão de ADM para ver membros!", show_alert=True)
+        except:
+            await query.answer("Me dê permissão de ADM!", show_alert=True)
 
     elif data.startswith(("v_", "d_")):
         tipo, dono_id = data.split("_")
         if user_id != int(dono_id):
-            return await query.answer("❌ Não é sua vez! A garrafa não parou em você.", show_alert=True)
+            return await query.answer("❌ Não é sua vez!", show_alert=True)
 
         sorteados.pop(chat_id, None)
         jogos_ativos.pop(chat_id, None)
@@ -242,14 +238,13 @@ async def game_engine(client, query):
 async def pv_handler(client, message):
     respostas = [
         "😏 O fogo está no grupo! Vá para lá e use `/vd`.",
-        "🚫 Para jogar, você precisa ir em um grupo e enviar o comando `/vd`!",
-        "🤫 Segredos só no grupo! Me adicione em um e digite `/vd`.",
-        "⚡ O Purgatório só abre nos grupos. Use o comando `/vd` lá!"
+        "🚫 No privado eu não jogo. Me leve para um grupo e use `/vd`!"
     ]
     await message.reply_text(random.choice(respostas))
 
-# Garante que o bot rode mesmo sem porta definida (para Render)
 if __name__ == "__main__":
     print("🔥 Purgatório V7 ON!")
+    # Inicia o servidor fake para o Render não dar erro de porta
+    threading.Thread(target=run_web, daemon=True).start()
+    # Inicia o Bot
     app.run()
-                       
