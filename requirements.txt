@@ -1,5 +1,4 @@
 flask
 pyrogram
 tgcrypto
-asyncio
 
