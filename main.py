@@ -9,7 +9,8 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 # --- SERVIDOR PARA O RENDER NÃO DESLIGAR ---
 web_app = Flask(__name__)
 @web_app.route('/')
-def home(): return "Bot Online!"
+def home(): 
+    return "Bot Online!"
 
 def run_web():
     # O Render exige que o bot escute uma porta (geralmente 8080 ou 10000)
@@ -165,6 +166,7 @@ DESAFIOS = [
     "Mande um emoji de ⚡ para quem te dá um choque de realidade.", "Mande um print dos seus stickers favoritos."
 ]
 
+# --- COMANDOS ---
 @app.on_message(filters.group & (filters.regex(r"@Vddoudsf_purgatorio_bot") | filters.command("vd")))
 async def handle_start(client, message):
     uid = message.from_user.id
@@ -174,7 +176,7 @@ async def handle_start(client, message):
          InlineKeyboardButton("🔥 DESAFIO", callback_data=f"d_{uid}")]
     ])
     await message.reply_text(
-        f"⛓️ **PURGATÓRIO V7**\n\n👤 Jogador: {message.from_user.mention}\nEscolha seu destino ou gire a garrafa:",
+        f"⛓️ **PURGATÓRIO V7**\n\n👤 Jogador: {message.from_user.mention}\nEscolha seu destino ou gire a garrafa!",
         reply_markup=kb
     )
 
@@ -215,8 +217,10 @@ async def game_engine(client, query):
             
             if chat_id in sorteados and sorteados[chat_id] == sorteado.id:
                 if chat_id in jogos_ativos and jogos_ativos[chat_id] == msg.id:
-                    await msg.delete()
-                    await client.send_message(chat_id, f"⏰ **TEMPO ESGOTADO!**\n{sorteado.mention} amarelou. Próximo!")
+                    try:
+                        await msg.delete()
+                        await client.send_message(chat_id, f"⏰ **TEMPO ESGOTADO!**\n{sorteado.mention} amarelou. Próximo!")
+                    except: pass
                     sorteados.pop(chat_id, None)
                     jogos_ativos.pop(chat_id, None)
         except:
@@ -242,9 +246,12 @@ async def pv_handler(client, message):
     ]
     await message.reply_text(random.choice(respostas))
 
+# --- INICIALIZAÇÃO CORRETA PARA O RENDER ---
 if __name__ == "__main__":
     print("🔥 Purgatório V7 ON!")
-    # Inicia o servidor fake para o Render não dar erro de porta
-    threading.Thread(target=run_web, daemon=True).start()
-    # Inicia o Bot
+    # Rodar o Flask em segundo plano (essencial para o Render)
+    t = threading.Thread(target=run_web)
+    t.daemon = True
+    t.start()
+    # Rodar o Bot principal
     app.run()
