@@ -1,4 +1,13 @@
 import asyncio
+
+# --- CORREÇÃO OBRIGATÓRIA PARA PYTHON 3.14 (RENDER) ---
+# Resolve o erro: "RuntimeError: There is no current event loop"
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 import random
 import os
 import threading
@@ -13,11 +22,11 @@ def home():
     return "Bot Online!"
 
 def run_web():
-    # O Render exige que o bot escute uma porta (geralmente 8080 ou 10000)
+    # O Render usa a porta 8080 que você configurou nas variáveis
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
 
-# --- CONFIGURAÇÕES DO BOT ---
+# --- CONFIGURAÇÕES DO BOT (Baseadas no seu print) ---
 API_ID = 28373470 
 API_HASH = "55d56fcb5e62b12998b5f77b1151136c" 
 BOT_TOKEN = "8791899548:AAGOLZ2qXBuo0QNIBQsUAY-l3QOW3PHZlzc"
@@ -28,7 +37,7 @@ app = Client("purgatorio_v7", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TO
 sorteados = {} 
 jogos_ativos = {} 
 
-# --- BANCO DE DADOS ---
+# --- BANCO DE DADOS (Suas Listas) ---
 VERDADES = [
     "Já se apaixonou por alguém aqui do grupo em segredo?", "Já chegou a gozar vendo a foto de perfil de alguém daqui ou imaginando a pessoa?",
     "Quem do grupo você teria uma amizade colorida agora mesmo?", "Já teve um sonho erótico com algum membro daqui? Se sim, quem?",
@@ -246,12 +255,10 @@ async def pv_handler(client, message):
     ]
     await message.reply_text(random.choice(respostas))
 
-# --- INICIALIZAÇÃO CORRETA PARA O RENDER ---
+# --- INICIALIZAÇÃO CORRETA ---
 if __name__ == "__main__":
     print("🔥 Purgatório V7 ON!")
-    # Rodar o Flask em segundo plano (essencial para o Render)
     t = threading.Thread(target=run_web)
     t.daemon = True
     t.start()
-    # Rodar o Bot principal
     app.run()
