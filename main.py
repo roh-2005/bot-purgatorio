@@ -6,7 +6,6 @@ import time
 from flask import Flask
 
 # ================= CONFIGURAÇÕES =================
-# Seu novo token adicionado conforme solicitado
 TOKEN = "8791899548:AAGS5UjIX2YStk7ZM7PfnNlL0upeld_5Ea4"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
@@ -17,11 +16,11 @@ def home():
     return "Bot de Verdade ou Desafio Online!", 200
 
 # Variáveis de Controle
-turno_vd = {} # {chat_id: {message_id: user_id}}
-usuarios_ativos = {} # {chat_id: {user_id: nome}}
-expira_em = {} # {message_id: True/False}
+turno_vd = {} 
+usuarios_ativos = {} 
+expira_em = {} 
 
-# ================= BANCO DE DADOS (700 ITENS CADA) =================
+# ================= BANCO DE DADOS (700 ITENS) =================
 
 VERDADES_BASE = [
     "Qual a sua maior insegurança na cama?", "Já teve sonhos eróticos com alguém do grupo?",
@@ -31,7 +30,7 @@ VERDADES_BASE = [
     "Marque @ e confesse uma coisa que você nunca teve coragem de dizer.",
     "Quem do grupo você beijaria agora? Marque @.",
     "Se você pudesse mandar @ calar a boca agora, você mandaria?",
-    "Já beijou alguém por pena? Se sim, marque @ se a pessoa estiver aqui.",
+    "Já beijou alguém por pena? Marque @.",
     "Qual a sua maior fantasia sexual não realizada?",
     "Marque @ e diga se você acha que essa pessoa beija bem ou mal."
 ]
@@ -40,19 +39,18 @@ DESAFIOS_BASE = [
     "Mande um áudio de 10s fingindo estar sem fôlego.", "Vá no PV de @ e diga 'Você não sai da minha cabeça'.",
     "Mude sua bio para 'Sou uma delícia' por 10 minutos.", "Mande a 15ª foto da sua galeria.",
     "Marque @ e peça para ele(a) te dar uma nota de 0 a 10.",
-    "Mande um áudio sussurrando algo picante no PV de @ e mande o print.",
+    "Mande um áudio sussurrando algo picante no PV de @.",
     "Marque @ e diga: 'Se você me desse mole, eu não perdoava'.",
     "Poste uma foto preta no status: 'Decepcionado...' e mande print.",
-    "Grave um áudio de 5s fazendo um gemido curto e mande aqui.",
+    "Grave um áudio de 5s fazendo um gemido curto.",
     "Marque @ e desafie essa pessoa a te mandar um nude no PV.",
     "Ligue para @ e desligue assim que ele(a) atender."
 ]
 
-# Completando a lista para 700 itens automaticamente
 while len(VERDADES_BASE) < 700:
-    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga se você teria coragem de namorar essa pessoa.")
+    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga se você sairia com essa pessoa.")
 while len(DESAFIOS_BASE) < 700:
-    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e mande uma figurinha que defina a beleza dela(e).")
+    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e mande uma figurinha para ela(e).")
 
 # ================= FUNÇÕES DE APOIO =================
 
@@ -69,10 +67,8 @@ def cronometro_expiracao(chat_id, msg_id, nome_jogador):
     time.sleep(60)
     if msg_id in expira_em:
         del expira_em[msg_id]
-        if chat_id in turno_vd and msg_id in turno_vd[chat_id]:
-            del turno_vd[chat_id][msg_id]
         try:
-            bot.edit_message_text(f"⏰ <b>TEMPO ESGOTADO!</b>\n\nO tempo de <b>{nome_jogador}</b> acabou. Use /vd para girar novamente.", chat_id, msg_id)
+            bot.edit_message_text(f"⏰ <b>TEMPO ESGOTADO!</b>\n\nO tempo de <b>{nome_jogador}</b> acabou. Gire novamente com /vd.", chat_id, msg_id)
         except: pass
 
 # ================= LÓGICA DO JOGO =================
@@ -102,7 +98,7 @@ def handle_clicks(c):
     elif acao == 'girar':
         participantes = list(usuarios_ativos.get(chat_id, {}).keys())
         if len(participantes) < 2:
-            return bot.answer_callback_query(c.id, "❌ Preciso de mais pessoas ativas!", show_alert=True)
+            return bot.answer_callback_query(c.id, "❌ Mais pessoas precisam falar no grupo!", show_alert=True)
         
         for i in range(5, 0, -1):
             try:
@@ -119,7 +115,6 @@ def handle_clicks(c):
 
         threading.Thread(target=cronometro_expiracao, args=(chat_id, msg_id, escolhido_nome)).start()
 
-        # Organização: Girar no Topo | Verdade e Desafio embaixo
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Garrafa", callback_data="vd_girar"))
         markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
@@ -141,7 +136,7 @@ def cmd_vd(m):
     markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
                telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
     
-    bot.send_message(chat_id, f"🎯 <b>JOGO INICIADO!</b>\n\nClique para girar a garrafa:", reply_markup=markup)
+    bot.send_message(chat_id, f"🎯 <b>JOGO INICIADO!</b>", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
 def monitor(m):
@@ -149,11 +144,18 @@ def monitor(m):
     if chat_id not in usuarios_ativos: usuarios_ativos[chat_id] = {}
     usuarios_ativos[chat_id][m.from_user.id] = m.from_user.first_name
 
-# ================= EXECUÇÃO =================
+# ================= EXECUÇÃO SEGURA =================
 
 def run_bot():
-    bot.remove_webhook() # Previne o erro 409 Conflict
-    bot.infinity_polling(skip_pending=True)
+    try:
+        bot.remove_webhook() # Limpa conexões antigas
+        time.sleep(2)        # Pausa para o Telegram processar a limpeza
+        print("Bot iniciado com sucesso!")
+        bot.infinity_polling(skip_pending=True)
+    except Exception as e:
+        print(f"Erro no polling: {e}")
+        time.sleep(5)
+        run_bot()
 
 if __name__ == "__main__":
     t = threading.Thread(target=run_bot)
