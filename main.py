@@ -20,12 +20,12 @@ turno_vd = {}
 usuarios_ativos = {} 
 expira_em = {} 
 
-# ================= BANCO DE DADOS (700 ITENS) =================
+# ================= BANCO DE DADOS =================
 
 VERDADES_BASE = [
     "Qual a sua maior insegurança na cama?", "Já teve sonhos eróticos com alguém do grupo?",
     "Marque @ e diga o que você mudaria no estilo dessa pessoa.",
-    "Qual a mentira mais descarada que já contou?", "Já pegou o ex de um amigo(a)?",
+    "Qual a mentira mais descarada que já contou?", "Já traiu e não foi pego(a)?",
     "Qual fetiche você tem vergonha de admitir?", "Já traiu e não foi pego(a)?",
     "Marque @ e confesse uma coisa que você nunca teve coragem de dizer.",
     "Quem do grupo você beijaria agora? Marque @.",
@@ -48,9 +48,9 @@ DESAFIOS_BASE = [
 ]
 
 while len(VERDADES_BASE) < 700:
-    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga se você sairia com essa pessoa.")
+    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga o que você acha dessa pessoa.")
 while len(DESAFIOS_BASE) < 700:
-    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e mande uma figurinha para ela(e).")
+    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e mande um emoji que defina ela(e).")
 
 # ================= FUNÇÕES DE APOIO =================
 
@@ -64,11 +64,15 @@ def processar_texto(texto, chat_id):
     return texto
 
 def cronometro_expiracao(chat_id, msg_id, nome_jogador):
+    """O cronômetro só começa após o sorteio ser concluído"""
     time.sleep(60)
+    # Se a mensagem ainda estiver marcada como esperando resposta do sorteado
     if msg_id in expira_em:
         del expira_em[msg_id]
+        if chat_id in turno_vd and msg_id in turno_vd[chat_id]:
+            del turno_vd[chat_id][msg_id]
         try:
-            bot.edit_message_text(f"⏰ <b>TEMPO ESGOTADO!</b>\n\nO tempo de <b>{nome_jogador}</b> acabou. Gire novamente com /vd.", chat_id, msg_id)
+            bot.edit_message_text(f"⏰ <b>TEMPO ESGOTADO!</b>\n\nO jogador <b>{nome_jogador}</b> demorou demais. Use /vd para reiniciar.", chat_id, msg_id)
         except: pass
 
 # ================= LÓGICA DO JOGO =================
@@ -78,12 +82,14 @@ def handle_clicks(c):
     chat_id, msg_id, uid = c.message.chat.id, c.message.message_id, c.from_user.id
     acao = c.data.split('_')[1]
 
-    dono = turno_vd.get(chat_id, {}).get(msg_id)
-    if dono and uid != dono:
-        return bot.answer_callback_query(c.id, "⚠️ NÃO É SUA VEZ!", show_alert=True)
-
+    # Verifica se a rodada ainda é válida
     if acao in ['verdade', 'desafio'] and msg_id not in expira_em:
-        return bot.answer_callback_query(c.id, "⏰ Tempo expirado!", show_alert=True)
+        return bot.answer_callback_query(c.id, "⏰ Esta rodada expirou ou ainda não houve sorteio!", show_alert=True)
+
+    # Bloqueia quem não foi sorteado
+    dono = turno_vd.get(chat_id, {}).get(msg_id)
+    if dono and uid != dono and acao != 'girar':
+        return bot.answer_callback_query(c.id, "⚠️ NÃO É SUA VEZ!", show_alert=True)
 
     if acao == 'verdade':
         expira_em.pop(msg_id, None)
@@ -98,8 +104,11 @@ def handle_clicks(c):
     elif acao == 'girar':
         participantes = list(usuarios_ativos.get(chat_id, {}).keys())
         if len(participantes) < 2:
-            return bot.answer_callback_query(c.id, "❌ Mais pessoas precisam falar no grupo!", show_alert=True)
+            return bot.answer_callback_query(c.id, "❌ Preciso de mais pessoas ativas!", show_alert=True)
         
+        # Limpa estados anteriores para evitar erro de tempo expirado precoce
+        expira_em.pop(msg_id, None)
+
         for i in range(5, 0, -1):
             try:
                 bot.edit_message_text(f"🍾 Girando a garrafa...\n\n⏳ <b>{i}s</b>", chat_id, msg_id)
@@ -111,8 +120,9 @@ def handle_clicks(c):
         
         if chat_id not in turno_vd: turno_vd[chat_id] = {}
         turno_vd[chat_id][msg_id] = escolhido_id
-        expira_em[msg_id] = True
+        expira_em[msg_id] = True # Agora sim a rodada começou a valer
 
+        # Inicia cronômetro DEPOIS do sorteio
         threading.Thread(target=cronometro_expiracao, args=(chat_id, msg_id, escolhido_nome)).start()
 
         markup = telebot.types.InlineKeyboardMarkup()
@@ -148,12 +158,10 @@ def monitor(m):
 
 def run_bot():
     try:
-        bot.remove_webhook() # Limpa conexões antigas
-        time.sleep(2)        # Pausa para o Telegram processar a limpeza
-        print("Bot iniciado com sucesso!")
+        bot.remove_webhook()
+        time.sleep(2)
         bot.infinity_polling(skip_pending=True)
     except Exception as e:
-        print(f"Erro no polling: {e}")
         time.sleep(5)
         run_bot()
 
