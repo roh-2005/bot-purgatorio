@@ -6,6 +6,7 @@ import time
 from flask import Flask
 
 # ================= CONFIGURAÇÕES =================
+# Seu novo token adicionado conforme solicitado
 TOKEN = "8791899548:AAGS5UjIX2YStk7ZM7PfnNlL0upeld_5Ea4"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
@@ -47,11 +48,11 @@ DESAFIOS_BASE = [
     "Ligue para @ e desligue assim que ele(a) atender."
 ]
 
-# Completando a lista para 700 itens
+# Completando a lista para 700 itens automaticamente
 while len(VERDADES_BASE) < 700:
-    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga se você confia nela(e).")
+    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga se você teria coragem de namorar essa pessoa.")
 while len(DESAFIOS_BASE) < 700:
-    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e mande uma figurinha pesada para ela(e).")
+    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e mande uma figurinha que defina a beleza dela(e).")
 
 # ================= FUNÇÕES DE APOIO =================
 
@@ -118,11 +119,9 @@ def handle_clicks(c):
 
         threading.Thread(target=cronometro_expiracao, args=(chat_id, msg_id, escolhido_nome)).start()
 
-        # --- ORGANIZAÇÃO DOS BOTÕES ---
+        # Organização: Girar no Topo | Verdade e Desafio embaixo
         markup = telebot.types.InlineKeyboardMarkup()
-        # Botão de Girar sozinho no topo
         markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Garrafa", callback_data="vd_girar"))
-        # Botões de Verdade e Desafio logo abaixo, na mesma linha
         markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
                    telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
         
@@ -153,7 +152,7 @@ def monitor(m):
 # ================= EXECUÇÃO =================
 
 def run_bot():
-    bot.remove_webhook()
+    bot.remove_webhook() # Previne o erro 409 Conflict
     bot.infinity_polling(skip_pending=True)
 
 if __name__ == "__main__":
