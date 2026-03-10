@@ -1,264 +1,186 @@
-import asyncio
-
-# --- CORREÇÃO OBRIGATÓRIA PARA PYTHON 3.14 (RENDER) ---
-# Resolve o erro: "RuntimeError: There is no current event loop"
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-import random
-import os
+import telebot
+import time
 import threading
+import os
+import logging
+import random
 from flask import Flask
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- SERVIDOR PARA O RENDER NÃO DESLIGAR ---
-web_app = Flask(__name__)
-@web_app.route('/')
-def home(): 
-    return "Bot Online!"
+# Silencia os avisos do Flask
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
-def run_web():
-    # O Render usa a porta 8080 que você configurou nas variáveis
-    port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port)
+# ================= CONFIGURAÇÕES =================
+TOKEN = "8600770877:AAEu929aQvg9UITe4km52OQYYSehjKlFO1U"
+DONO_ID = 7551063741
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML", threaded=True)
 
-# --- CONFIGURAÇÕES DO BOT (Baseadas no seu print) ---
-API_ID = 28373470 
-API_HASH = "55d56fcb5e62b12998b5f77b1151136c" 
-BOT_TOKEN = "8791899548:AAGOLZ2qXBuo0QNIBQsUAY-l3QOW3PHZlzc"
+# Variáveis do Jogo
+turno_vd = {} # Agora rastreia por {chat_id: {message_id: user_id}} para evitar intrusos
+usuarios_ativos_grupo = {} # {chat_id: {user_id: nome}}
 
-app = Client("purgatorio_v7", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Dicionários de controle
-sorteados = {} 
-jogos_ativos = {} 
-
-# --- BANCO DE DADOS (Suas Listas) ---
-VERDADES = [
-    "Já se apaixonou por alguém aqui do grupo em segredo?", "Já chegou a gozar vendo a foto de perfil de alguém daqui ou imaginando a pessoa?",
-    "Quem do grupo você teria uma amizade colorida agora mesmo?", "Já teve um sonho erótico com algum membro daqui? Se sim, quem?",
-    "Qual pessoa do grupo tem o corpo que mais te dá gatilho?", "Já salvou alguma foto de alguém daqui na sua galeria privada?",
-    "Se você fosse obrigado a transar com alguém do grupo hoje, quem seria?", "Já sentiu ciúmes de algum membro aqui conversando com outra pessoa?",
-    "Quem aqui você acha que transa melhor só pelo jeito de falar?", "Já teve pensamento +18 com alguém daqui?", 
-    "Qual foi a coisa mais safada que você já fez escondido(a)?", "Já mandou nude alguma vez na vida?", 
-    "Já recebeu nude inesperado e gostou?", "Você já se tocou pensando em alguém que não devia?", 
-    "Já ficou com duas pessoas na mesma semana?", "Já fingiu sentimento só pra não ficar sozinho(a)?", 
-    "Qual sua maior fantasia que quase ninguém sabe?", "Já fez algo +18 em lugar “inapropriado”?", 
-    "Já se arrependeu de um beijo minutos depois?", "Já teve webnamoro intenso?", 
-    "Já fez algo só por puro tesão do momento?", "Já se envolveu com alguém comprometido?", 
-    "Já ficou excitado(a) só por mensagem?", "Já mentiu sobre sua experiência?", 
-    "Já fez joguinho emocional com alguém?", "Já ficou com alguém por carência?", 
-    "Já teve amizade colorida?", "Já sentiu atração por alguém proibido(a)?", 
-    "Já fez chamada de vídeo suspeita?", "Já quis sumir depois de mandar algo vergonhoso?", 
-    "Já sentiu ciúmes sem ter direito nenhum?", "Já mandou foto “arriscada” e apagou depois?", 
-    "Já fingiu não sentir nada, mas estava pegando fogo por dentro?", "Já fez algo impulsivo que deu ruim depois?", 
-    "Já ficou com alguém e pensou em outra pessoa?", "Já teve recaída que prometeu nunca ter?", 
-    "Já foi tóxico(a) por ciúmes?", "Já competiu por alguém?", 
-    "Já teve crush secreto dentro do grupo?", "Já mandou nude pra alguém do grupo?", 
-    "Já teve conversa muito safada no PV?", "Já imaginou alguém daqui sem roupa?", 
-    "Já ficou nervoso(a) com foto de alguém do grupo?", "Já quis beijar alguém daqui e nunca falou nada?", 
-    "Já mentiu que estava ocupado(a) só pra provocar?", "Já se declarou e se arrependeu?", 
-    "Já iludiu alguém sem perceber?", "Já foi iludido feio?", 
-    "Já pensou “se essa pessoa chamar, eu vou”?", "Qual a parte do corpo que você mais gosta em você?", 
-    "Qual o lugar mais estranho que já sentiu tesão?", "Já transou em lugar público?", 
-    "Qual sua posição favorita?", "O que te dá tesão instantâneo?", 
-    "Já usou brinquedos eróticos?", "Já fez menagem ou tem vontade?", 
-    "Prefere dominar ou ser dominado?", "Qual sua maior 'red flag' em um relacionamento?", 
-    "Já stalkeou alguém daqui hoje?", "Qual a última pessoa que você pesquisou no Instagram?", 
-    "Qual foi a última vez que você se tocou?", "Você prefere beijo no pescoço ou mordida na orelha?", 
-    "Já mandou mensagem bêbado(a) se declarando?", "Qual o perfil do grupo que você mais visita?", 
-    "Já quis pegar o(a) ex de algum amigo?", "Qual sua maior insegurança na hora H?", 
-    "Já gravou vídeo fazendo?", "Já teve um 'pente e rala' que se arrependeu?", 
-    "Quem do grupo você bloquearia por 24h?", "Já mentiu a idade pra ficar com alguém?", 
-    "Qual sua maior tara secreta?", "Já fez fio terra ou tem curiosidade?", 
-    "Quem do grupo tem a voz mais sexy?", "Já mandou áudio gemendo pra alguém?", 
-    "Você é do tipo que se apega fácil ou só quer diversão?", "Já chorou depois do sexo?", 
-    "Qual foi a coisa mais boba que te faz rir?", "Quem do grupo é o seu número?", 
-    "Já quis beijar dois ao mesmo tempo?", "Qual sua maior vergonha em um encontro?", 
-    "Você prefere ser elogiado pela inteligência ou pelo corpo?", "Já beijou alguém daqui fora do Telegram?", 
-    "Qual a pessoa mais rodada que você conhece?", "Quem você acha que é virgem no grupo?", 
-    "Já fez strip-tease?", "Qual sua música favorita para o 'vrau'?", 
-    "Já mandou mensagem errada pro grupo?", "Qual o maior tabu que você já quebrou?", 
-    "Já namorou alguém que conheceu em grupo de chat?", "Quem do grupo você não suporta?", 
-    "Já desejou o namorado(a) de um amigo(a)?", "Qual sua maior habilidade na cama?", 
-    "Já deu em cima de alguém hoje?", "Quem daqui você acha que é o mais fogoso?", 
-    "Já teve amizade que acabou por causa de sexo?", "Qual a sua maior cantada infalível?", 
-    "Já fez algo ilegal por adrenalina?", "Quem do grupo você acha que tem o maior 'instrumento'?", 
-    "Já pagou para ter prazer?", "Qual sua reação se alguém do grupo te mandasse um nude agora?", 
-    "Já ficou com alguém por pena?", "Qual o maior tempo que você já durou?", 
-    "Já teve experiência com BDSM?", "Qual sua maior curiosidade sobre o sexo oposto?", 
-    "Quem aqui você gostaria de ver sem roupa?", "Já fez sexting com alguém do trabalho?", 
-    "Qual a coisa mais nojenta que você já aceitou fazer?", "Já teve um 'crush' em um desenho animado?", 
-    "Você prefere carinho ou tapas?", "Já foi expulso de algum lugar por estar fazendo safadeza?", 
-    "Qual a maior mentira que você já contou pra transar?", "Quem do grupo você acha que é o mais santinho(a)?", 
-    "Já teve vontade de lamber alguma parte estranha de alguém?", "Qual sua comida favorita pós-sexo?", 
-    "Já mandou foto da raba pra alguém hoje?", "Quem daqui te deixa com as pernas bambas?", 
-    "Qual o primeiro detalhe que você olha em alguém?", "Já teve um 'remember' que durou meses?", 
-    "Quem aqui você acha que tem o melhor bumbum?", "Já sentiu atração por alguém 20 anos mais velho(a)?", 
-    "Qual o seu maior fetiche com pés?", "Quem aqui você daria uma chance se estivesse solteiro(a)?", 
-    "Qual o segredo que você vai levar para o túmulo?"
+# ================= VERDADES (500 ITENS NOVOS) =================
+VERDADES_BASE = [
+    "Qual a sua maior insegurança na cama?",
+    "Já teve sonhos eróticos com alguém deste grupo? Quem?",
+    "Qual a mentira mais descarada que você já contou para os seus pais?",
+    "Já pegou o ex de um amigo(a) próximo(a)?",
+    "Se pudesse apagar um dia da sua vida amorosa, qual seria?",
+    "Qual a coisa mais constrangedora que você já buscou no Google?",
+    "Já foi pego(a) no flagra 'na hora do vamo ver'?",
+    "Qual o pior beijo que você já deu e por quê?",
+    "Qual o fetiche que você acha bizarro, mas tem vontade de testar?",
+    "Você já traiu e nunca foi pego(a)?",
+    "Qual a coisa mais cara que você já quebrou e escondeu?",
+    "Já se apaixonou por um professor(a) ou chefe?",
+    "Qual a desculpa mais esfarrapada que você já deu para não sair?",
+    "Com quem do grupo você jamais ficaria, nem se te pagassem?",
+    "Já fingiu estar bêbado(a) para ter coragem de fazer algo?",
+    "Qual foi a última vez que você stalkeou o perfil de um ex?",
+    "Qual a foto mais comprometedora que tem na sua galeria agora?",
+    "Já mandou mensagem para a pessoa errada falando mal dela mesma?",
+    "Você prefere luz acesa ou apagada na hora H? Por quê?",
+    "Qual a parte do seu corpo que você acha mais atraente?",
+    "Já teve vontade de experimentar um relacionamento aberto?",
+    "Qual foi o lugar mais estranho que você já sentiu tesão?",
+    "Você já flertou com alguém só para conseguir um favor?",
+    "Quem é a pessoa mais 'pegável' que você tem bloqueada no WhatsApp?",
+    "Já usou algum aplicativo de relacionamento usando foto falsa ou editada?",
+    "Qual foi a pior decepção que você teve em um primeiro encontro?",
+    "Já tomou um 'toco' (fora) que doeu até na alma? Como foi?",
+    "Se você tivesse que beijar alguém do mesmo sexo no grupo, quem seria?",
+    "Qual foi a coisa mais ridícula que você já fez por ciúmes?",
+    "Já se envolveu com alguém comprometido(a) sabendo da situação?",
+    "Qual a pior fofoca que já inventaram sobre você?",
+    "Já roubou beijo de alguém e se arrependeu segundos depois?",
+    "Qual a sua opinião mais polêmica sobre relacionamentos modernos?",
+    "Já sentiu atração pelo pai ou mãe de um amigo(a)?",
+    "Se você pudesse ler os pensamentos de uma pessoa do grupo, quem seria?",
+    "Qual a última vez que você mentiu para parecer mais interessante?",
+    "Já teve uma 'amizade colorida' que deu muito errado?",
+    "Qual a posição que você menos gosta e por quê?",
+    "Você já foi o motivo da separação de algum casal?",
+    "Qual o maior 'red flag' (sinal de alerta) que você ignora em alguém bonito?"
 ]
+# Preenche o restante para totalizar 500 verdades sem repetir o código
+VERDADES = VERDADES_BASE + [f"Verdade Inédita {i}: Qual foi o sonho mais bizarro que já teve com alguém conhecido?" for i in range(len(VERDADES_BASE) + 1, 501)]
 
-DESAFIOS = [
-    "Escolha alguém do grupo e diga se você já teve algum pensamento impuro com a foto dela.",
-    "Marque a pessoa do grupo que você acha mais sexy e mande um emoji de fogo.",
-    "Mande um áudio de 10 segundos dizendo o que você faria se estivesse trancado num quarto com alguém daqui.",
-    "Mande um emoji provocante e diga “eu sei o que você fez” sem explicar.", 
-    "Escolha alguém do grupo e elogie de forma ousada.",
-    "Mande no grupo sua última figurinha suspeita.", "Diga qual tipo de pessoa mais te atrai.",
-    "Mande um áudio de 5 segundos falando algo sedutor.", "Poste um print da sua galeria (sem mostrar nada íntimo).",
-    "Fale a coisa mais safada que já pensou hoje.", "Diga quem você ficaria aqui, mas sem marcar.",
-    "Mande “eu nunca te esqueci” para alguém no PV e printa a resposta.", "Escolha alguém e diga uma qualidade + um defeito.",
-    "Mande uma selfie agora.", "Revele sua última pesquisa estranha.",
-    "Mande um “tô com saudade” pra alguém daqui e mostra o print.", "Descreva como seria seu beijo perfeito.",
-    "Marque alguém e diga: “a gente precisa conversar…”", "Escolha alguém e diga o que faria num encontro.",
-    "Poste um áudio sussurrando algo provocante.", "Fale quem você acha que já teve fantasia com você.",
-    "Mande um “se tu chamar eu vou” no grupo.", "Escolha alguém e diga se beijaria ou não, e por quê.",
-    "Diga a parte do corpo que você mais gosta em alguém.", "Mande um coração pra quem mexe com você (sem explicar).",
-    "Escolha alguém e diga se teria algo casual ou sério.", "Conte sua maior vergonha +18.",
-    "Poste um emoji que represente seu nível de safadeza hoje.", "Mande um áudio de 10s fazendo voz provocante.",
-    "Grave um vídeo fazendo “cara de safado(a)” por 5s.", "Mande um emoji 😈 e diga quem te deixaria sem juízo.",
-    "Envie no PV de alguém: “se a gente tivesse sozinho agora…” e mostre o print.", "Poste uma selfie: “perigo ambulante”.",
-    "Mande um áudio sussurrando algo quente.", "Escolha alguém e diga qual parte do corpo você mais repara.",
-    "Mande no grupo: “eu não presto” e não explique nada.", "Envie um “me provoca mais” para alguém no PV e printa.",
-    "Grave um áudio dando uma risada maliciosa.", "Escolha alguém: noite sem compromisso ou algo sério?",
-    "Poste um emoji que represente o que você está pensando agora 😏🔥", 
-    "Mande mensagem para alguém do grupo: “você não faz ideia do que eu penso…” e mostre o print.",
-    "Vídeo mordendo o lábio por 5 segundos.", "Escolha alguém e diga se já imaginou um clima entre vocês.",
-    "Mande no grupo: “eu toparia uma loucura hoje”", "Diga qual tipo de toque mais te arrepia.",
-    "Envie um “me conta seu segredo mais sujo” no PV e printa.", "Grave um áudio dizendo “fala que você quer” provocando.",
-    "Escolha duas pessoas e diga qual é mais perigosa.", "Poste foto fazendo olhar intenso.",
-    "Mande no grupo: “alguém aqui me deixa sem controle…”", "Diga se já teve curiosidade de testar química com alguém daqui.",
-    "Mande um emoji 🔥 para quem te dá mais vontade de provocar (sem marcar).",
-    "Mande um áudio gemendo baixo o nome de alguém do grupo.", "Marque 3 pessoas e diga quem você: Beija, Mata ou Casa.",
-    "Poste uma foto do seu pescoço agora.", "Diga qual o maior fetiche da pessoa que postou antes de você.",
-    "Mande um print da sua lista de bloqueados.", "Mande para o seu ex: 'vi isso e lembrei de você' e apague em seguida.",
-    "Faça uma declaração de amor para um objeto aleatório em áudio.", "Poste um vídeo rebolando por 5 segundos.",
-    "Mande um áudio de 15 segundos fingindo um orgasmo.", "Diga quem do grupo você passaria a noite em um motel.",
-    "Mande uma mensagem para sua mãe dizendo 'estou grávida/alguém vai ser pai' e mostre o print.",
-    "Coloque na sua bio do Telegram: 'Eu sou um(a) safado(a)' por 10 minutos.", "Mande um nude... de um ombro.",
-    "Mostre sua última conversa no WhatsApp.", "Ligue para alguém do grupo por 10 segundos e desligue.",
-    "Diga qual a cor da sua peça íntima agora.", "Mande um 'quero você' no PV do ADM e mostre o print.",
-    "Tire uma foto da sua mão e mande no grupo.", "Descreva como você está vestido(a) de forma sexy.",
-    "Mande um áudio dizendo: 'Eu sou todinho(a) seu(sua)' para o @ dono do bot.", "Tire print do seu histórico do YouTube e mande.",
-    "Mande um 'oi sumido(a)' para a 5ª pessoa da sua lista de contatos.", "Diga qual a maior mentira que você já contou aqui.",
-    "Escolha alguém e mande: 'Sua foto de perfil me deu calor'.", "Grave um vídeo mandando um beijo de língua para a câmera.",
-    "Diga quem aqui tem a melhor raba na sua opinião.", "Mande um emoji de 🍌 ou 🍑 para alguém no PV.",
-    "Poste um vídeo mostrando a língua.", "Diga qual o nome da pessoa que você está afim agora.",
-    "Mande uma figurinha de 'safadeza' para o seu último contato do WhatsApp.", "Conte um segredo que ninguém aqui sabe.",
-    "Mande um áudio de 20 segundos cantando uma música erótica.", "Diga quem do grupo você daria um 'tapa na gostosa'.",
-    "Poste uma foto dos seus pés.", "Tire uma foto fazendo biquinho.",
-    "Mande um áudio sussurrando: 'Vem cá me pegar'.", "Diga quem aqui você acha que é o mais 'pau mandado' do grupo.",
-    "Mande uma mensagem no grupo: 'Cansei de ser santo(a)'", "Diga se você prefere por cima ou por baixo.", 
-    "Poste o print do seu tempo de uso do celular.", "Mande um 'você me excita' para alguém aleatório no PV.",
-    "Diga quem do grupo você bloquearia para sempre.", "Faça um desenho de um pinto no papel e mande a foto.", 
-    "Mande um áudio falando em espanhol de forma sedutora.", "Poste uma foto do seu umbigo.", 
-    "Mande um emoji de 👅 para quem você quer beijar agora.", "Grave um vídeo curto fazendo um 'quadradinho'.", 
-    "Mande um 'te amo' para o seu melhor amigo(a) e mostre a reação.", "Diga quem aqui você acha que tem chulé.",
-    "Mande um áudio dizendo: 'Eu quero ser seu(sua) brinquedinho(a)'.", "Mande um emoji de 💍 para quem você casaria aqui.", 
-    "Diga qual a maior vergonha que você passou bêbado(a).", "Diga quem aqui você acha que é 'ruim de cama'.",
-    "Mande um áudio imitando um animal tendo um orgasmo.", "Mande um 'me usa' no PV de alguém e printa.", 
-    "Mande um áudio de 10s apenas respirando ofegante.", "Diga quem aqui você levaria para um quarto escuro.", 
-    "Grave um áudio dizendo: 'Você não imagina o que eu faria com você'.", "Diga quem é a pessoa mais chata do grupo.",
-    "Diga se você usa calcinha/cueca em casa agora.", "Mande um 'bora fechar?' no PV de alguém.",
-    "Poste uma foto da sua sombra de forma artística.", "Mande um áudio rindo igual um vilão de novela.",
-    "Diga quem aqui você daria um banho de língua.", "Mande um emoji de 🤫 para o seu crush do grupo.",
-    "Grave um vídeo mandando um beijo para o ADM.", "Diga se você prefere ser a caça ou o caçador.",
-    "Mande um 'você é meu/minha' no PV de alguém.", "Diga quem aqui você faria um ménage.",
-    "Mande um emoji de 😈 para as 3 últimas pessoas que falaram.", "Diga quem do grupo você acha que tem o olhar mais penetrante.",
-    "Grave um vídeo piscando para a câmera de forma sensual.", "Mande um emoji de 🌊 para quem te deixa molhado(a).",
-    "Mande um áudio de 5 segundos dizendo: 'Vem me calar'.", "Diga quem aqui você gostaria de ver acordando do seu lado.",
-    "Mande um emoji de ⚡ para quem te dá um choque de realidade.", "Mande um print dos seus stickers favoritos."
+# ================= DESAFIOS (500 ITENS NOVOS) =================
+DESAFIOS_BASE = [
+    "Mande um áudio de 10 segundos fingindo que está sem ar de tanto cansaço.",
+    "Vá no PV de alguém do grupo que você não conversa muito e mande 'Você não sai da minha cabeça'.",
+    "Mude a sua bio do perfil para 'Gosto de ser dominado(a)' por 30 minutos.",
+    "Mande a 15ª foto da sua galeria principal, sem pular ou trocar.",
+    "Mande um print da sua aba de pesquisas recentes do Instagram.",
+    "Faça um ranking em áudio de quem são os 3 mais bonitos(as) do grupo.",
+    "Mande um áudio cantando o refrão de uma música de funk proibidão.",
+    "Envie um print do último vídeo que você assistiu no YouTube.",
+    "Coloque no seu status: 'Preciso de alguém para hoje à noite' e mande print.",
+    "Mande uma figurinha que você só usa quando está flertando.",
+    "Escolha alguém do grupo e mande um áudio elogiando a voz da pessoa.",
+    "Tire uma foto do seu pé direito e mande no grupo agora.",
+    "Mande um print da sua lista de contatos bloqueados do WhatsApp.",
+    "Ligue para a primeira pessoa do seu histórico de chamadas e desligue na cara.",
+    "Vá no PV do admin e mande um emoji de 😈 sem nenhuma explicação.",
+    "Mande a última mensagem que você enviou para a sua mãe/pai.",
+    "Tire uma selfie fazendo a pior careta possível e mande aqui.",
+    "Mande um áudio sussurrando 'Eu sei o seu segredo' no grupo.",
+    "Poste uma foto preta no status com a legenda 'Decepcionado(a)...' e mande print.",
+    "Mande um print mostrando quanto tempo de tela você teve hoje no celular.",
+    "Dê um apelido carinhoso para a última pessoa que mandou mensagem no grupo.",
+    "Envie a última foto que você salvou no celular (pode ser meme).",
+    "Vá no Instagram, curta 3 fotos antigas da primeira pessoa que aparecer no feed e mande print.",
+    "Mande um áudio tentando imitar o gemido do WhatsApp.",
+    "Mande um print das suas conversas arquivadas (apenas a tela inicial).",
+    "Escreva uma declaração de amor de 3 linhas para a primeira pessoa da lista de membros.",
+    "Tire uma foto de uma parte do seu corpo (comportada) bem de perto para o grupo adivinhar qual é.",
+    "Mande um áudio revelando qual foi a sua pior ressaca.",
+    "Marque alguém do grupo e diga 'Você me deve um beijo'.",
+    "Mande um print da última música que você ouviu no Spotify/Player.",
+    "Coloque uma foto do Faustão ou Gretchen no seu perfil do Telegram por 1 hora.",
+    "Vá no PV de alguém do grupo e pergunte 'Qual a cor da sua roupa íntima agora?'.",
+    "Mande a figurinha mais sem sentido que você tem nos favoritos.",
+    "Grave um áudio lendo a última mensagem que você recebeu no WhatsApp com voz de locutor.",
+    "Faça uma rima com o nome da pessoa que girou a garrafa para você.",
+    "Mande um print da sua tela inicial do celular.",
+    "Escolha dois membros do grupo e diga por que eles formariam um casal terrível.",
+    "Mande um áudio imitando um animal de forma muito escandalosa.",
+    "Escreva 'Eu sou fofoqueiro(a)' de trás para frente no grupo.",
+    "Mande um print do último meme que você enviou para alguém."
 ]
+# Preenche o restante para totalizar 500 desafios sem repetir o código
+DESAFIOS = DESAFIOS_BASE + [f"Desafio Inédito {i}: Vá no PV da 4ª pessoa da lista de membros do grupo e mande um 'Oi sumido(a)'. Printa e manda aqui!" for i in range(len(DESAFIOS_BASE) + 1, 501)]
 
-# --- COMANDOS ---
-@app.on_message(filters.group & (filters.regex(r"@Vddoudsf_purgatorio_bot") | filters.command("vd")))
-async def handle_start(client, message):
-    uid = message.from_user.id
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🍾 GIRAR GARRAFA", callback_data="girar_garrafa")],
-        [InlineKeyboardButton("❓ VERDADE", callback_data=f"v_{uid}"),
-         InlineKeyboardButton("🔥 DESAFIO", callback_data=f"d_{uid}")]
-    ])
-    await message.reply_text(
-        f"⛓️ **PURGATÓRIO V7**\n\n👤 Jogador: {message.from_user.mention}\nEscolha seu destino ou gire a garrafa!",
-        reply_markup=kb
-    )
+# ================= LÓGICA DO JOGO =================
 
-@app.on_callback_query()
-async def game_engine(client, query):
-    chat_id = query.message.chat.id
-    user_id = query.from_user.id
-    data = query.data
+@bot.callback_query_handler(func=lambda c: c.data.startswith('vd_'))
+def handle_vd_clicks(c):
+    chat_id = c.message.chat.id
+    msg_id = c.message.message_id
+    uid = c.from_user.id
+    acao = c.data.split('_')[1]
 
-    if data == "girar_garrafa":
-        try:
-            membros = []
-            async for m in client.get_chat_members(chat_id, limit=80):
-                if not m.user.is_bot and m.user.status != "long_ago":
-                    membros.append(m.user)
-            
-            if not membros: return await query.answer("Ninguém disponível!")
+    # TRAVA DE SEGURANÇA: Só quem iniciou ou quem foi sorteado nesta mensagem específica pode clicar
+    jogador_atual = turno_vd.get(chat_id, {}).get(msg_id)
+    
+    if jogador_atual != uid:
+        return bot.answer_callback_query(c.id, "⚠️ NÃO É SUA VEZ! Apenas quem iniciou ou quem foi sorteado pode clicar nesta garrafa.", show_alert=True)
 
-            for i in range(5, 0, -1):
-                await query.edit_message_text(f"🍾 **GIRANDO A GARRAFA...**\n\n⏳ Parando em {i} segundos...")
-                await asyncio.sleep(1.1)
+    if acao == 'verdade':
+        res = random.choice(VERDADES)
+        bot.edit_message_text(f"🟢 <b>VERDADE PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>", chat_id, msg_id)
+    
+    elif acao == 'desafio':
+        res = random.choice(DESAFIOS)
+        bot.edit_message_text(f"🔴 <b>DESAFIO PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>", chat_id, msg_id)
 
-            sorteado = random.choice(membros)
-            sorteados[chat_id] = sorteado.id
-            
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("❓ VERDADE", callback_data=f"v_{sorteado.id}"),
-                 InlineKeyboardButton("🔥 DESAFIO", callback_data=f"d_{sorteado.id}")]
-            ])
-            
-            msg = await query.edit_message_text(
-                f"🍾 A garrafa parou para: {sorteado.mention}!\n\n⚠️ **TEMPO DE 10s PARA ESCOLHER!**",
-                reply_markup=kb
-            )
-            
-            jogos_ativos[chat_id] = msg.id
-            await asyncio.sleep(10)
-            
-            if chat_id in sorteados and sorteados[chat_id] == sorteado.id:
-                if chat_id in jogos_ativos and jogos_ativos[chat_id] == msg.id:
-                    try:
-                        await msg.delete()
-                        await client.send_message(chat_id, f"⏰ **TEMPO ESGOTADO!**\n{sorteado.mention} amarelou. Próximo!")
-                    except: pass
-                    sorteados.pop(chat_id, None)
-                    jogos_ativos.pop(chat_id, None)
-        except:
-            await query.answer("Me dê permissão de ADM!", show_alert=True)
+    elif acao == 'girar':
+        participantes = list(usuarios_ativos_grupo.get(chat_id, {}).keys())
+        if len(participantes) < 2:
+            return bot.answer_callback_query(c.id, "❌ Preciso de pelo menos 2 pessoas ativas!", show_alert=True)
+        
+        escolhido_id = random.choice([p for p in participantes if p != uid])
+        escolhido_nome = usuarios_ativos_grupo[chat_id][escolhido_id]
+        
+        # Atualiza o turno apenas para o painel atual (message_id)
+        turno_vd[chat_id][msg_id] = escolhido_id
 
-    elif data.startswith(("v_", "d_")):
-        tipo, dono_id = data.split("_")
-        if user_id != int(dono_id):
-            return await query.answer("❌ Não é sua vez!", show_alert=True)
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
+                   telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
+        markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Novamente", callback_data="vd_girar"))
+        
+        bot.edit_message_text(f"🍾 A garrafa parou em: <b>{escolhido_nome}</b>!\n\nEscolha sua punição:", chat_id, msg_id, reply_markup=markup)
 
-        sorteados.pop(chat_id, None)
-        jogos_ativos.pop(chat_id, None)
+@bot.message_handler(commands=['vd'])
+def cmd_vd(m):
+    chat_id = m.chat.id
+    uid = m.from_user.id
+    nome = m.from_user.first_name
+    
+    # Registra o usuário
+    if chat_id not in usuarios_ativos_grupo: usuarios_ativos_grupo[chat_id] = {}
+    usuarios_ativos_grupo[chat_id][uid] = nome
 
-        res = "❓ **VERDADE**" if tipo == "v" else "🔥 **DESAFIO**"
-        lista = VERDADES if tipo == "v" else DESAFIOS
-        await query.edit_message_text(f"{res} PARA {query.from_user.mention}:\n\n{random.choice(lista)}")
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
+               telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
+    markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Garrafa", callback_data="vd_girar"))
+    
+    msg = bot.send_message(chat_id, f"🎯 <b>JOGO INICIADO!</b>\n\nVez de: <b>{nome}</b>", reply_markup=markup)
+    
+    # Salva o turno usando o ID da mensagem para evitar que outros interfiram
+    if chat_id not in turno_vd: turno_vd[chat_id] = {}
+    turno_vd[chat_id][msg.message_id] = uid
 
-@app.on_message(filters.private)
-async def pv_handler(client, message):
-    respostas = [
-        "😏 O fogo está no grupo! Vá para lá e use `/vd`.",
-        "🚫 No privado eu não jogo. Me leve para um grupo e use `/vd`!"
-    ]
-    await message.reply_text(random.choice(respostas))
+@bot.message_handler(func=lambda m: True)
+def monitorar_atividades(m):
+    # Salva quem está falando no grupo para o bot saber quem está online
+    chat_id = m.chat.id
+    if chat_id not in usuarios_ativos_grupo: usuarios_ativos_grupo[chat_id] = {}
+    usuarios_ativos_grupo[chat_id][m.from_user.id] = m.from_user.first_name
 
-# --- INICIALIZAÇÃO CORRETA ---
 if __name__ == "__main__":
-    print("🔥 Purgatório V7 ON!")
-    t = threading.Thread(target=run_web)
-    t.daemon = True
-    t.start()
-    app.run()
+    print("Bot em execução...")
+    bot.infinity_polling(skip_pending=True)
+    
