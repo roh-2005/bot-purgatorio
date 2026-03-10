@@ -1,21 +1,26 @@
 import telebot
-import time
-import threading
-import os
-import logging
 import random
+import os
+import threading
+from flask import Flask
 
 # ================= CONFIGURAÇÕES =================
+# O Render exige que você use variáveis de ambiente ou uma porta específica
 TOKEN = "8600770877:AAEu929aQvg9UITe4km52OQYYSehjKlFO1U"
-bot = telebot.TeleBot(TOKEN, parse_mode="HTML", threaded=True)
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
+
+# Servidor Web para o Render não dar erro
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot está vivo!", 200
 
 # Variáveis do Jogo
-# Estrutura: {chat_id: {message_id: user_id_da_vez}}
-turno_vd = {} 
-# Estrutura: {chat_id: {user_id: nome}}
-usuarios_ativos_grupo = {} 
+turno_vd = {} # {chat_id: {message_id: user_id_da_vez}}
+usuarios_ativos_grupo = {} # {chat_id: {user_id: nome}}
 
-# ================= LISTAS (Resumidas para o exemplo) =================
+# ================= LISTAS =================
 VERDADES = [
     "Qual a sua maior insegurança na cama?",
     "Já teve sonhos eróticos com alguém deste grupo?",
@@ -39,42 +44,39 @@ def handle_vd_clicks(c):
     uid = c.from_user.id
     acao = c.data.split('_')[1]
 
-    # 1. BUSCA QUEM É O DONO DA VEZ NESTA MENSAGEM ESPECÍFICA
-    # Se não houver registro, o bot ignora ou define como livre (segurança)
+    # 1. VERIFICAÇÃO DO JOGADOR DA VEZ
     jogador_da_vez = turno_vd.get(chat_id, {}).get(msg_id)
 
-    # 2. VERIFICAÇÃO DE INTRUSO
+    # 2. POP-UP PARA INTRUSOS
     if jogador_da_vez and uid != jogador_da_vez:
         return bot.answer_callback_query(
             c.id, 
-            "⚠️ SAI DAÍ, INTRUSO!\nNão é a sua vez de girar ou escolher.", 
+            "⚠️ NÃO É SUA VEZ!\nAguarde sua vez para interagir.", 
             show_alert=True
         )
 
-    # 3. SE FOR O JOGADOR CORRETO, SEGUE O JOGO
+    # 3. AÇÕES DO JOGADOR CORRETO
     if acao == 'verdade':
         res = random.choice(VERDADES)
         bot.edit_message_text(f"🟢 <b>VERDADE PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>", chat_id, msg_id)
-        # Limpa o turno após responder para permitir novo /vd sem lixo na memória
-        if msg_id in turno_vd[chat_id]: del turno_vd[chat_id][msg_id]
+        # Opcional: manter o botão de girar para a próxima rodada
     
     elif acao == 'desafio':
         res = random.choice(DESAFIOS)
         bot.edit_message_text(f"🔴 <b>DESAFIO PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>", chat_id, msg_id)
-        if msg_id in turno_vd[chat_id]: del turno_vd[chat_id][msg_id]
 
     elif acao == 'girar':
         participantes = list(usuarios_ativos_grupo.get(chat_id, {}).keys())
         
         if len(participantes) < 2:
-            return bot.answer_callback_query(c.id, "❌ Preciso de pelo menos 2 pessoas ativas no chat!", show_alert=True)
+            return bot.answer_callback_query(c.id, "❌ Preciso de pelo menos 2 pessoas ativas!", show_alert=True)
         
-        # Sorteia alguém que não seja quem clicou (opcional, para dar dinâmica)
         outros = [p for p in participantes if p != uid]
         escolhido_id = random.choice(outros if outros else participantes)
         escolhido_nome = usuarios_ativos_grupo[chat_id][escolhido_id]
         
-        # ATUALIZAÇÃO CRUCIAL: Agora o dono da vez passa a ser o sorteado
+        # Define o novo dono da vez para esta mensagem
+        if chat_id not in turno_vd: turno_vd[chat_id] = {}
         turno_vd[chat_id][msg_id] = escolhido_id
 
         markup = telebot.types.InlineKeyboardMarkup()
@@ -85,7 +87,7 @@ def handle_vd_clicks(c):
         markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Novamente", callback_data="vd_girar"))
         
         bot.edit_message_text(
-            f"🍾 A garrafa girou e parou em: <b>{escolhido_nome}</b>!\n\nO que você escolhe?", 
+            f"🍾 A garrafa parou em: <b>{escolhido_nome}</b>!\n\nEscolha sua punição:", 
             chat_id, 
             msg_id, 
             reply_markup=markup
@@ -97,7 +99,6 @@ def cmd_vd(m):
     uid = m.from_user.id
     nome = m.from_user.first_name
     
-    # Registra o usuário como ativo
     if chat_id not in usuarios_ativos_grupo: usuarios_ativos_grupo[chat_id] = {}
     usuarios_ativos_grupo[chat_id][uid] = nome
 
@@ -108,20 +109,26 @@ def cmd_vd(m):
     )
     markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Garrafa", callback_data="vd_girar"))
     
-    msg = bot.send_message(chat_id, f"🎯 <b>JOGO INICIADO!</b>\n\nVez de: <b>{nome}</b>\n<i>Gire a garrafa para sortear alguém!</i>", reply_markup=markup)
+    msg = bot.send_message(chat_id, f"🎯 <b>JOGO INICIADO!</b>\n\nVez de: <b>{nome}</b>", reply_markup=markup)
     
-    # Define que, nesta mensagem, apenas quem deu /vd pode clicar inicialmente
     if chat_id not in turno_vd: turno_vd[chat_id] = {}
     turno_vd[chat_id][msg.message_id] = uid
 
 @bot.message_handler(func=lambda m: True)
-def monitorar_atividades(m):
-    # Atualiza a lista de quem está falando para o sorteio funcionar
+def monitorar(m):
     chat_id = m.chat.id
     if chat_id not in usuarios_ativos_grupo: usuarios_ativos_grupo[chat_id] = {}
     usuarios_ativos_grupo[chat_id][m.from_user.id] = m.from_user.first_name
 
-if __name__ == "__main__":
-    print("Bot rodando e vigiando intrusos...")
+# ================= EXECUÇÃO =================
+
+def run_bot():
     bot.infinity_polling(skip_pending=True)
+
+if __name__ == "__main__":
+    # Inicia o Bot em uma thread separada
+    threading.Thread(target=run_bot).start()
+    # Inicia o servidor Web na porta correta para o Render
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
     
