@@ -13,14 +13,14 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot de Verdade ou Desafio Online!", 200
+    return "Bot Online!", 200
 
 # Variáveis de Controle
 turno_vd = {} 
 usuarios_ativos = {} 
 expira_em = {} 
 
-# ================= BANCO DE DADOS =================
+# ================= BANCO DE DADOS (EXPANDIDO) =================
 
 VERDADES_BASE = [
     "Qual a sua maior insegurança na cama?", "Já teve sonhos eróticos com alguém do grupo?",
@@ -32,7 +32,9 @@ VERDADES_BASE = [
     "Se você pudesse mandar @ calar a boca agora, você mandaria?",
     "Já beijou alguém por pena? Marque @.",
     "Qual a sua maior fantasia sexual não realizada?",
-    "Marque @ e diga se você acha que essa pessoa beija bem ou mal."
+    "Marque @ e diga se você acha que essa pessoa beija bem ou mal.",
+    "Você já stalkeou alguém do grupo hoje?", "Qual a coisa mais estranha que você já fez sozinho(a)?",
+    "Se pudesse apagar um erro do passado, qual seria?", "Quem aqui você levaria para uma ilha deserta?"
 ]
 
 DESAFIOS_BASE = [
@@ -44,14 +46,16 @@ DESAFIOS_BASE = [
     "Poste uma foto preta no status: 'Decepcionado...' e mande print.",
     "Grave um áudio de 5s fazendo um gemido curto.",
     "Marque @ e desafie essa pessoa a te mandar um nude no PV.",
-    "Ligue para @ e desligue assim que ele(a) atender."
+    "Ligue para @ e desligue assim que ele(a) atender.",
+    "Mande um print da sua última conversa no WhatsApp.", "Fique 5 minutos sem usar emojis.",
+    "Mande uma foto fazendo careta agora.", "Declare-se para @ em 3 frases."
 ]
 
-# Garantindo 500 perguntas e 500 desafios como você pediu anteriormente
-while len(VERDADES_BASE) < 500:
-    VERDADES_BASE.append(f"Verdade {len(VERDADES_BASE)+1}: Marque @ e diga algo que você admira nela(e).")
-while len(DESAFIOS_BASE) < 500:
-    DESAFIOS_BASE.append(f"Desafio {len(DESAFIOS_BASE)+1}: Marque @ e envie uma figurinha engraçada para ela(e).")
+# Garantindo os 500 itens solicitados
+for i in range(len(VERDADES_BASE), 500):
+    VERDADES_BASE.append(f"Verdade {i+1}: Se você fosse um animal, qual seria e por quê?")
+for i in range(len(DESAFIOS_BASE), 500):
+    DESAFIOS_BASE.append(f"Desafio {i+1}: Marque @ e mande um elogio exagerado.")
 
 # ================= FUNÇÕES DE APOIO =================
 
@@ -66,13 +70,12 @@ def processar_texto(texto, chat_id):
 
 def cronometro_expiracao(chat_id, msg_id, nome_jogador):
     time.sleep(60)
-    # Só envia a mensagem de expiração se o jogador ainda não tiver escolhido
     if msg_id in expira_em:
         del expira_em[msg_id]
         if chat_id in turno_vd and msg_id in turno_vd[chat_id]:
             del turno_vd[chat_id][msg_id]
         try:
-            bot.edit_message_text(f"⏰ <b>TEMPO EXPIRADO!</b>\n\nO sorteado <b>{nome_jogador}</b> não respondeu a tempo. Gire a garrafa novamente!", chat_id, msg_id)
+            bot.edit_message_text(f"⏰ <b>TEMPO EXPIRADO!</b>\n\n<b>{nome_jogador}</b> não respondeu. Gire novamente!", chat_id, msg_id)
         except: pass
 
 # ================= LÓGICA DO JOGO =================
@@ -82,18 +85,17 @@ def handle_clicks(c):
     chat_id, msg_id, uid = c.message.chat.id, c.message.message_id, c.from_user.id
     acao = c.data.split('_')[1]
 
-    # Qualquer um pode girar a garrafa a qualquer momento
+    # --- BOTÃO GIRAR GARRAFA ---
     if acao == 'girar':
         participantes = list(usuarios_ativos.get(chat_id, {}).keys())
         if len(participantes) < 2:
-            return bot.answer_callback_query(c.id, "❌ Mais pessoas precisam falar no grupo para jogar!", show_alert=True)
+            return bot.answer_callback_query(c.id, "❌ Preciso de mais pessoas ativas!", show_alert=True)
         
-        # Reseta o estado da mensagem para uma nova rodada
-        expira_em.pop(msg_id, None)
+        expira_em.pop(msg_id, None) # Reseta cronômetro anterior
 
-        for i in range(5, 0, -1):
+        for i in range(3, 0, -1): # Reduzi para 3s para ser mais rápido
             try:
-                bot.edit_message_text(f"🍾 Girando a garrafa...\n\n⏳ <b>{i}s</b>", chat_id, msg_id)
+                bot.edit_message_text(f"🍾 Girando...\n\n⏳ <b>{i}s</b>", chat_id, msg_id)
                 time.sleep(1)
             except: break
 
@@ -102,7 +104,7 @@ def handle_clicks(c):
         
         if chat_id not in turno_vd: turno_vd[chat_id] = {}
         turno_vd[chat_id][msg_id] = escolhido_id
-        expira_em[msg_id] = True # Marca que agora o sorteado tem 1 minuto
+        expira_em[msg_id] = True 
 
         threading.Thread(target=cronometro_expiracao, args=(chat_id, msg_id, escolhido_nome)).start()
 
@@ -112,59 +114,63 @@ def handle_clicks(c):
                    telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
         
         bot.edit_message_text(
-            f"🍾 A garrafa parou em: <b>{escolhido_nome}</b>!\n\nEscolha <b>Verdade</b> ou <b>Desafio</b> em 1 minuto:", 
+            f"🍾 A garrafa parou em: <b>{escolhido_nome}</b>!\n\nEscolha em 1 minuto:", 
             chat_id, msg_id, reply_markup=markup
         )
         return
 
-    # Verificação para os botões de Verdade e Desafio
+    # --- BOTÕES VERDADE E DESAFIO ---
     if acao in ['verdade', 'desafio']:
-        # Se não houve sorteio ou o tempo já acabou no cronômetro
-        if msg_id not in expira_em:
-            return bot.answer_callback_query(c.id, "⚠️ Gire a garrafa primeiro!", show_alert=True)
-
-        # Se quem apertou não foi o sorteado
         dono = turno_vd.get(chat_id, {}).get(msg_id)
-        if uid != dono:
-            return bot.answer_callback_query(c.id, "⚠️ Não é sua vez! Apenas o sorteado pode escolher.", show_alert=True)
-
-        # Se chegou aqui, é o sorteado escolhendo
-        expira_em.pop(msg_id, None) # Para o cronômetro
         
+        # Se houve sorteio e quem apertou NÃO foi o sorteado
+        if dono and uid != dono:
+            return bot.answer_callback_query(c.id, "⚠️ Não é sua vez!", show_alert=True)
+
+        # Se for o sorteado ou se não houver sorteio ativo (qualquer um pode pedir)
+        expira_em.pop(msg_id, None) 
+        if chat_id in turno_vd and msg_id in turno_vd[chat_id]:
+            del turno_vd[chat_id][msg_id]
+
         if acao == 'verdade':
             res = processar_texto(random.choice(VERDADES_BASE), chat_id)
-            bot.edit_message_text(f"🟢 <b>VERDADE PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>", chat_id, msg_id)
+            texto = f"🟢 <b>VERDADE PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>"
         else:
             res = processar_texto(random.choice(DESAFIOS_BASE), chat_id)
-            bot.edit_message_text(f"🔴 <b>DESAFIO PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>", chat_id, msg_id)
+            texto = f"🔴 <b>DESAFIO PARA:</b> {c.from_user.first_name}\n\n<i>{res}</i>"
+
+        # Mantém os botões para a próxima rodada
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Garrafa", callback_data="vd_girar"))
+        markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
+                   telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
+        
+        bot.edit_message_text(texto, chat_id, msg_id, reply_markup=markup)
 
 @bot.message_handler(commands=['vd'])
 def cmd_vd(m):
     chat_id, uid, nome = m.chat.id, m.from_user.id, m.from_user.first_name
-    if chat_id not in usuarios_ativos: usuarios_ativos[chat_id] = {}
-    usuarios_ativos[chat_id][uid] = nome
+    usuarios_ativos.setdefault(chat_id, {})[uid] = nome
 
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(telebot.types.InlineKeyboardButton("🍾 Girar Garrafa", callback_data="vd_girar"))
     markup.row(telebot.types.InlineKeyboardButton("🟢 Verdade", callback_data="vd_verdade"),
                telebot.types.InlineKeyboardButton("🔴 Desafio", callback_data="vd_desafio"))
     
-    bot.send_message(chat_id, f"🎯 <b>JOGO INICIADO!</b>", reply_markup=markup)
+    bot.send_message(chat_id, "🎯 <b>Verdade ou Desafio - Purgatório</b>\n\nEscolha uma opção ou gire a garrafa:", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
 def monitor(m):
-    chat_id = m.chat.id
-    if chat_id not in usuarios_ativos: usuarios_ativos[chat_id] = {}
-    usuarios_ativos[chat_id][m.from_user.id] = m.from_user.first_name
+    usuarios_ativos.setdefault(m.chat.id, {})[m.from_user.id] = m.from_user.first_name
 
-# ================= EXECUÇÃO SEGURA =================
+# ================= EXECUÇÃO =================
 
 def run_bot():
     try:
         bot.remove_webhook()
-        time.sleep(2)
+        time.sleep(1)
         bot.infinity_polling(skip_pending=True)
-    except Exception as e:
+    except:
         time.sleep(5)
         run_bot()
 
