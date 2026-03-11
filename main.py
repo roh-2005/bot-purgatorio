@@ -7,7 +7,7 @@ import random
 from flask import Flask
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Silencia avisos do Flask para o log do Render
+# Silencia avisos do Flask
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 app = Flask(__name__)
@@ -20,7 +20,7 @@ def home():
 TOKEN = "8791899548:AAGS5UjIX2YStk7ZM7PfnNlL0upeld_5Ea4"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# ================= BANCO DE DADOS (VARIEDADE SAFADA/ENGRAÇADA) =================
+# ================= BANCO DE DADOS =================
 p_bases = [
     "Qual seu fetiche mais bizarro?", "Quem do grupo você beijaria agora?", "Já transou em lugar público?",
     "Qual sua fantasia sexual?", "Já mandou nudes para a pessoa errada?", "Já beijou alguém do mesmo sexo?",
@@ -44,7 +44,6 @@ VERDADES = [f"{random.choice(p_bases)} (#{i+1})" for i in range(300)]
 DESAFIOS = [f"{random.choice(d_bases)} (#{i+1})" for i in range(300)]
 
 # ================= ESTADO DO JOGO =================
-# Organizado por chat_id para não misturar grupos
 jogos = {} 
 
 def monitorar_tempo(chat_id, user_id, msg_id):
@@ -53,7 +52,6 @@ def monitorar_tempo(chat_id, user_id, msg_id):
         try:
             bot.edit_message_text("⏰ <b>Tempo esgotado!</b> O jogador perdeu a vez.", chat_id, msg_id, reply_markup=None)
         except: pass
-        jogos[chat_id]['sorteado'] = None
         jogos[chat_id]['respondido'] = True
 
 def criar_menu():
@@ -69,17 +67,22 @@ def criar_menu():
 @bot.message_handler(commands=['vd'])
 def cmd_vd(message):
     chat_id = message.chat.id
-    # Define quem é o DONO desta rodada específica
+    user_id = message.from_user.id
+    nome = message.from_user.first_name
+    
+    # Cria a menção clicável
+    mencao = f"<a href='tg://user?id={user_id}'>{nome}</a>"
+    
     jogos[chat_id] = {
-        'dono': message.from_user.id,
-        'dono_nome': message.from_user.first_name,
-        'sorteado': None,
+        'dono': user_id,
+        'dono_nome': nome,
+        'dono_mencao': mencao,
         'respondido': True
     }
     
     bot.send_message(
         chat_id, 
-        f"🔥 <b>Purgatório: Verdade ou Desafio</b>\nRodada iniciada por: <b>{message.from_user.first_name}</b>\n(Apenas ele(a) pode apertar os botões!)", 
+        f"🔥 <b>Purgatório: Verdade ou Desafio</b>\nRodada iniciada por: {mencao}", 
         reply_markup=criar_menu()
     )
 
@@ -89,34 +92,26 @@ def tratar_cliques(call):
     user_id = call.from_user.id
     msg_id = call.message.message_id
 
-    # Verifica se existe um jogo ativo nesse chat
     if chat_id not in jogos:
-        bot.answer_callback_query(call.id, "Use /vd para começar um jogo!", show_alert=True)
+        bot.answer_callback_query(call.id, "Use /vd para começar!", show_alert=True)
         return
 
-    # TRAVA DE SEGURANÇA: Só o dono do /vd pode apertar
+    # TRAVA: Só o dono do /vd (mencionado) pode clicar
     if user_id != jogos[chat_id]['dono']:
-        bot.answer_callback_query(call.id, f"⚠️ Sai fora! Só o(a) {jogos[chat_id]['dono_nome']} pode jogar nesta rodada.", show_alert=True)
+        bot.answer_callback_query(call.id, f"⚠️ Apenas {jogos[chat_id]['dono_nome']} pode interagir nesta rodada!", show_alert=True)
         return
 
     # AÇÃO: GIRAR
     if call.data == "girar":
-        # Pega a lista de quem já interagiu com o bot no grupo para o sorteio
-        membros = [user_id] # Por padrão, o dono está na lista
-        # (Nota: Em grupos, o bot só vê quem já mandou mensagem ou interagiu)
-        
         for i in range(5, 0, -1):
-            bot.edit_message_text(f"🍾 <b>Girando...</b> ({i}s)\nSorteando alguém do grupo!", chat_id, msg_id)
+            bot.edit_message_text(f"🍾 <b>Girando...</b> ({i}s)", chat_id, msg_id)
             time.sleep(1)
-
-        # Simula o sorteio (aqui você pode integrar com uma lista de membros real se desejar)
-        # Para fins de teste, o bot sorteia alguém que já enviou /vd ou interagiu
-        sorteado_id = user_id # No Purgatório, geralmente sorteamos entre os ativos
         
-        jogos[chat_id].update({'sorteado': sorteado_id, 'respondido': False})
+        jogos[chat_id]['respondido'] = False
+        mencao = jogos[chat_id]['dono_mencao']
 
         bot.edit_message_text(
-            f"🎯 <b>A garrafa parou em você, {jogos[chat_id]['dono_nome']}!</b>\nEscolha Verdade ou Desafio rápido!",
+            f"🎯 <b>Parou em você, {mencao}!</b>\nEscolha Verdade ou Desafio rápido!",
             chat_id, msg_id, reply_markup=criar_menu()
         )
         threading.Thread(target=monitorar_tempo, args=(chat_id, user_id, msg_id), daemon=True).start()
@@ -126,21 +121,19 @@ def tratar_cliques(call):
         texto = random.choice(VERDADES) if call.data == "v" else random.choice(DESAFIOS)
         emoji = "🙊 VERDADE" if call.data == "v" else "😈 DESAFIO"
         
-        # Envia o resultado e mata os botões
         bot.edit_message_text(
-            f"<b>{emoji}:</b>\n\n{texto}", 
+            f"<b>{emoji} PARA {jogos[chat_id]['dono_mencao']}:</b>\n\n{texto}", 
             chat_id, msg_id, 
-            reply_markup=None # Botões somem aqui
+            reply_markup=None 
         )
         jogos[chat_id]['respondido'] = True
 
-# ================= EXECUÇÃO NO RENDER =================
+# ================= EXECUÇÃO =================
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
-    print("Bot Purgatório Blindado ONLINE!")
     bot.infinity_polling()
     
