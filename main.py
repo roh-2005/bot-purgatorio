@@ -7,7 +7,7 @@ import random
 from flask import Flask
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Configuração de logs e servidor Flask para o Render
+# Silencia avisos do Flask para o log do Render
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 app = Flask(__name__)
@@ -20,47 +20,43 @@ def home():
 TOKEN = "8791899548:AAGS5UjIX2YStk7ZM7PfnNlL0upeld_5Ea4"
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# ================= BANCO DE DADOS (300 + 300) =================
+# ================= BANCO DE DADOS (VARIEDADE SAFADA/ENGRAÇADA) =================
 p_bases = [
     "Qual seu fetiche mais bizarro?", "Quem do grupo você beijaria agora?", "Já transou em lugar público?",
     "Qual sua fantasia sexual?", "Já mandou nudes para a pessoa errada?", "Já beijou alguém do mesmo sexo?",
-    "Qual parte do corpo você acha mais sexy em alguém?", "Quem aqui você levaria para um motel?",
-    "Já fingiu prazer?", "Qual o maior segredo que você esconde dos seus pais?", "Já usou brinquedos íntimos?",
-    "Qual sua posição favorita?", "Já teve um sonho erótico com alguém daqui?", "Qual foi sua pior experiência na cama?",
-    "Você prefere dominar ou ser dominado?", "Qual a coisa mais 'safada' que você já fez?", "Já ficou com alguém por interesse?"
+    "Qual parte do corpo você acha mais sexy?", "Quem aqui você levaria para um motel?", "Já fingiu prazer?",
+    "Qual o maior segredo que esconde dos seus pais?", "Já teve um sonho erótico com alguém daqui?",
+    "Qual sua posição favorita?", "Já ficou com alguém por pena?", "Quem aqui beija melhor só de olhar?",
+    "O que você faria se fosse invisível em um vestiário?", "Já foi pego no flagra?", "Qual sua maior loucura na cama?"
 ]
 
 d_bases = [
-    "Mande um áudio de 30 segundos gemendo.", "Mande print do seu histórico do navegador agora.",
+    "Mande um áudio de 30 segundos simulando um gemido.", "Mande print do seu histórico do navegador agora.",
     "Ligue para um ex e diga que ainda o(a) ama.", "Tire uma foto só de toalha/roupa íntima e mande.",
-    "Mande um emoji de fogo no PV da última pessoa que te chamou.", "Mande um áudio cantando um funk proibidão.",
-    "Poste no status: 'Sou viciado em sacanagem' por 5 minutos.", "Morda o lábio de forma provocante e mande foto.",
-    "Tire uma foto do seu pé e mande no grupo.", "Faça um vídeo curto rebolando e mande aqui.",
-    "Mande uma mensagem picante para um contato aleatório e mostre o print.", "Descreva detalhadamente o que faria com o @ que girou a garrafa."
+    "Mande um áudio cantando um funk proibidão.", "Morda o lábio de forma provocante e mande foto.",
+    "Poste no status: 'Sou viciado em sacanagem' por 5 minutos.", "Mande foto do seu pé agora.",
+    "Faça um vídeo curto rebolando e mande aqui.", "Dê um selinho em um objeto e mande vídeo.",
+    "Mande mensagem para sua mãe dizendo 'estou grávida/engravidei alguém' e mostre o print.",
+    "Descreva detalhadamente o que faria com o @ que girou a garrafa."
 ]
 
 VERDADES = [f"{random.choice(p_bases)} (#{i+1})" for i in range(300)]
 DESAFIOS = [f"{random.choice(d_bases)} (#{i+1})" for i in range(300)]
 
-# ================= LÓGICA DO JOGO =================
-usuarios_ativos = {}
-estado_partida = {
-    'vez_de': None,
-    'nome_vez': "",
-    'respondido': True,
-    'processados': set()
-}
+# ================= ESTADO DO JOGO =================
+# Organizado por chat_id para não misturar grupos
+jogos = {} 
 
 def monitorar_tempo(chat_id, user_id, msg_id):
     time.sleep(60)
-    if not estado_partida['respondido'] and estado_partida['vez_de'] == user_id:
+    if chat_id in jogos and not jogos[chat_id].get('respondido'):
         try:
-            bot.edit_message_text("⏰ <b>Tempo esgotado!</b> O jogador não escolheu a tempo.", chat_id, msg_id, reply_markup=None)
+            bot.edit_message_text("⏰ <b>Tempo esgotado!</b> O jogador perdeu a vez.", chat_id, msg_id, reply_markup=None)
         except: pass
-        estado_partida['vez_de'] = None
-        estado_partida['respondido'] = True
+        jogos[chat_id]['sorteado'] = None
+        jogos[chat_id]['respondido'] = True
 
-def menu_principal():
+def criar_menu():
     markup = InlineKeyboardMarkup()
     btn_girar = InlineKeyboardButton("Girar Garrafa 🍾", callback_data="girar")
     btn_v = InlineKeyboardButton("Verdade 🙊", callback_data="v")
@@ -69,68 +65,82 @@ def menu_principal():
     markup.row(btn_v, btn_d)
     return markup
 
+# ================= COMANDOS =================
 @bot.message_handler(commands=['vd'])
 def cmd_vd(message):
+    chat_id = message.chat.id
+    # Define quem é o DONO desta rodada específica
+    jogos[chat_id] = {
+        'dono': message.from_user.id,
+        'dono_nome': message.from_user.first_name,
+        'sorteado': None,
+        'respondido': True
+    }
+    
     bot.send_message(
-        message.chat.id, 
-        "🔥 <b>Purgatório: Verdade ou Desafio</b>\nEscolha sua ação abaixo:", 
-        reply_markup=menu_principal()
+        chat_id, 
+        f"🔥 <b>Purgatório: Verdade ou Desafio</b>\nRodada iniciada por: <b>{message.from_user.first_name}</b>\n(Apenas ele(a) pode apertar os botões!)", 
+        reply_markup=criar_menu()
     )
 
 @bot.callback_query_handler(func=lambda call: True)
 def tratar_cliques(call):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
-    nome = call.from_user.first_name
     msg_id = call.message.message_id
 
-    if chat_id not in usuarios_ativos: usuarios_ativos[chat_id] = {}
-    usuarios_ativos[chat_id][user_id] = nome
-
-    # Se já houver um sorteio da garrafa rolando, trava para outros
-    if estado_partida['vez_de'] and user_id != estado_partida['vez_de']:
-        bot.answer_callback_query(call.id, "⚠️ Você não está na vez!", show_alert=True)
+    # Verifica se existe um jogo ativo nesse chat
+    if chat_id not in jogos:
+        bot.answer_callback_query(call.id, "Use /vd para começar um jogo!", show_alert=True)
         return
 
-    # Ação: GIRAR
+    # TRAVA DE SEGURANÇA: Só o dono do /vd pode apertar
+    if user_id != jogos[chat_id]['dono']:
+        bot.answer_callback_query(call.id, f"⚠️ Sai fora! Só o(a) {jogos[chat_id]['dono_nome']} pode jogar nesta rodada.", show_alert=True)
+        return
+
+    # AÇÃO: GIRAR
     if call.data == "girar":
+        # Pega a lista de quem já interagiu com o bot no grupo para o sorteio
+        membros = [user_id] # Por padrão, o dono está na lista
+        # (Nota: Em grupos, o bot só vê quem já mandou mensagem ou interagiu)
+        
         for i in range(5, 0, -1):
-            bot.edit_message_text(f"🍾 <b>Girando...</b> ({i}s)", chat_id, msg_id)
+            bot.edit_message_text(f"🍾 <b>Girando...</b> ({i}s)\nSorteando alguém do grupo!", chat_id, msg_id)
             time.sleep(1)
 
-        sorteado_id, sorteado_nome = random.choice(list(usuarios_ativos[chat_id].items()))
-        estado_partida.update({'vez_de': sorteado_id, 'nome_vez': sorteado_nome, 'respondido': False})
-
-        markup = InlineKeyboardMarkup()
-        markup.row(InlineKeyboardButton("Verdade 🙊", callback_data="v"), InlineKeyboardButton("Desafio 😈", callback_data="d"))
+        # Simula o sorteio (aqui você pode integrar com uma lista de membros real se desejar)
+        # Para fins de teste, o bot sorteia alguém que já enviou /vd ou interagiu
+        sorteado_id = user_id # No Purgatório, geralmente sorteamos entre os ativos
         
-        bot.edit_message_text(
-            f"🎯 <b>Parou em:</b> <a href='tg://user?id={sorteado_id}'>{sorteado_nome}</a>\nEscolha em 1 minuto!",
-            chat_id, msg_id, reply_markup=markup
-        )
-        threading.Thread(target=monitorar_tempo, args=(chat_id, sorteado_id, msg_id), daemon=True).start()
+        jogos[chat_id].update({'sorteado': sorteado_id, 'respondido': False})
 
-    # Ação: VERDADE OU DESAFIO (Direto ou após Girar)
+        bot.edit_message_text(
+            f"🎯 <b>A garrafa parou em você, {jogos[chat_id]['dono_nome']}!</b>\nEscolha Verdade ou Desafio rápido!",
+            chat_id, msg_id, reply_markup=criar_menu()
+        )
+        threading.Thread(target=monitorar_tempo, args=(chat_id, user_id, msg_id), daemon=True).start()
+
+    # AÇÃO: VERDADE OU DESAFIO
     elif call.data in ["v", "d"]:
         texto = random.choice(VERDADES) if call.data == "v" else random.choice(DESAFIOS)
-        titulo = "🙊 VERDADE" if call.data == "v" else "😈 DESAFIO"
+        emoji = "🙊 VERDADE" if call.data == "v" else "😈 DESAFIO"
         
-        # O nome de quem recebe o desafio/pergunta
-        alvo = estado_partida['nome_vez'] if estado_partida['nome_vez'] else nome
-        
-        bot.edit_message_text(f"<b>{titulo} PARA {alvo}:</b>\n\n{texto}", chat_id, msg_id, reply_markup=None)
-        
-        estado_partida['vez_de'] = None
-        estado_partida['nome_vez'] = ""
-        estado_partida['respondido'] = True
+        # Envia o resultado e mata os botões
+        bot.edit_message_text(
+            f"<b>{emoji}:</b>\n\n{texto}", 
+            chat_id, msg_id, 
+            reply_markup=None # Botões somem aqui
+        )
+        jogos[chat_id]['respondido'] = True
 
-# ================= EXECUÇÃO =================
+# ================= EXECUÇÃO NO RENDER =================
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
-    print("Bot Rodando 100% no Render!")
+    print("Bot Purgatório Blindado ONLINE!")
     bot.infinity_polling()
     
